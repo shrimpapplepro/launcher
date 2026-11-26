@@ -41,6 +41,9 @@ struct app
     std::string Icon;
     std::string Exec;
     std::function<void(Launch *)> launch;
+    // Absolute .desktop path for apps loaded from the applications directory;
+    // empty for built-in pages.
+    std::string DesktopFile;
 
     app(std::string name, std::string icon, std::string exec, bool terminal);
     app(std::string name, std::string icon, std::string exec, bool terminal, bool sysplause);

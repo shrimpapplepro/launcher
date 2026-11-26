@@ -196,6 +196,16 @@ ${CXX:-g++} -std=c++17 -Wall -Wextra -Werror \
     "$test_root/test_lockscreen_wallpaper.cpp" \
     "$test_root/../main/ui/model/lockscreen_wallpaper.cpp" \
     -o "$build_dir/test_lockscreen_wallpaper"
+${CXX:-g++} -std=c++17 -Wall -Wextra -Werror \
+    "$test_root/test_app_user_order.cpp" \
+    "$test_root/../main/ui/model/app_user_order.cpp" \
+    -o "$build_dir/test_app_user_order"
+"$build_dir/test_app_user_order"
+${CXX:-g++} -std=c++17 -Wall -Wextra -Werror \
+    "$test_root/test_app_package_lookup.cpp" \
+    "$test_root/../main/ui/model/app_package_lookup.cpp" \
+    -o "$build_dir/test_app_package_lookup"
+"$build_dir/test_app_package_lookup"
 "$build_dir/test_lockscreen_wallpaper"
 ${CXX:-g++} -std=c++17 -Wall -Wextra -Werror \
     -I"$test_root/../../../ext_components/cp0_lvgl/include" \

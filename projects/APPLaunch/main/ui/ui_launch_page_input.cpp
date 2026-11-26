@@ -6,6 +6,9 @@
 
 #include "ui_launch_page.h"
 
+#include "app_uninstall.hpp"
+#include "launch.h"
+
 #include "hal_lvgl_bsp.h"
 #include "input_keys.h"
 #include "keyboard_input.h"
@@ -82,6 +85,21 @@ void UILaunchPage::handle_home_key(lv_event_t *event)
            code,
            kbd_state_name(elm->key_state),
            elm->sym_name);
+
+    // The uninstall dialog owns every key while it is open.
+    if (launcher_uninstall_flow().is_open()) {
+        launcher_uninstall_flow().handle_key(code, elm->key_state);
+        return;
+    }
+
+    // Ctrl + Backspace asks to uninstall the centred app.
+    if (elm->key_state == 1 && (elm->mods & KBD_MOD_CTRL) && elm->key_code == KEY_BACKSPACE)
+    {
+        if (navigation_.keyboard_navigation_enabled() && !navigation_.is_animating() && launch_)
+            if (const app *item = launch_->carousel_slot_app(kCardCenter))
+                launcher_uninstall_flow().open(*item);
+        return;
+    }
 
     // Ctrl + Left/Right (or Ctrl + Z/C) moves the centred app.
     if (elm->key_state && (elm->mods & KBD_MOD_CTRL) &&

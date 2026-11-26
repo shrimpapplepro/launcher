@@ -9,7 +9,7 @@
 #include "app_registry.h"
 #include "builtin_app_registry.hpp"
 #include "desktop_app_loader.hpp"
-#include "app_user_order.hpp"
+#include "home_app_order.hpp"
 #include "esc_hold_hint_controller.h"
 #include "ui.h"
 #include "generated/page_app.h"
@@ -19,6 +19,7 @@
 #include "cp0_lvgl_app.h"
 #include "sample_log.h"
 
+#include <algorithm>
 #include <exception>
 #include <functional>
 #include <memory>
@@ -216,7 +217,7 @@ void Launch::applications_load()
 {
     launcher_append_desktop_apps(app_list);
     launcher_sort_app_display_order(app_list);
-    launcher_apply_user_app_order(app_list);
+    home_app_order().apply(app_list);
 }
 
 bool Launch::move_current_app(int delta)
@@ -230,7 +231,7 @@ bool Launch::move_current_app(int delta)
     const int to = normalized_app_index(from + delta);
     std::swap(*std::next(app_list.begin(), from), *std::next(app_list.begin(), to));
     current_app = to;
-    launcher_save_user_app_order(app_list);
+    home_app_order().remember(app_list);
     return true;
 }
 
@@ -256,8 +257,27 @@ void Launch::reload_home_icons()
 
 void Launch::applications_reload()
 {
+    // Keep the selection across a reload: the same app if it still exists,
+    // otherwise the app that slid into its slot (e.g. after an uninstall).
+    const int previous_index = normalized_app_index(current_app);
+    const app *previous = app_at_index(current_app);
+    const std::string previous_name = previous ? previous->Name : std::string();
+
     rebuild_builtin_apps();
     applications_load();
+
+    int index = 0;
+    int selected = -1;
+    for (const app &item : app_list) {
+        if (item.Name == previous_name) {
+            selected = index;
+            break;
+        }
+        ++index;
+    }
+    if (selected < 0 && previous_index >= 0 && !app_list.empty())
+        selected = std::min(previous_index, static_cast<int>(app_list.size()) - 1);
+    if (selected >= 0) current_app = selected;
     reload_home_icons();
 }
 
@@ -294,6 +314,10 @@ void Launch::esc_force_home_cb(void *user_data) noexcept
 
 Launch::~Launch()
 {
+    try {
+        home_app_order().flush_pending();
+    } catch (...) {
+    }
     launcher_app_registry_clear_changed_callback(app_registry_changed_cb, this);
     esc_hold_hint_controller().set_force_home_callback(nullptr, nullptr);
     esc_hold_hint_controller().set_return_home_enabled(false);
