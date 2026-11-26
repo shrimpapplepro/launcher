@@ -65,6 +65,8 @@ public:
     void set_launch_page(std::shared_ptr<UILaunchPage> launch_page);
     void select_next_app();
     void select_previous_app();
+    // Move the centred app one slot (delta -1 left, +1 right) and persist it.
+    bool move_current_app(int delta);
     std::size_t app_count() const;
     std::size_t current_app_index() const;
     const app *carousel_slot_app(size_t slot) const;

@@ -83,6 +83,19 @@ void UILaunchPage::handle_home_key(lv_event_t *event)
            kbd_state_name(elm->key_state),
            elm->sym_name);
 
+    // Ctrl + Left/Right (or Ctrl + Z/C) moves the centred app.
+    if (elm->key_state && (elm->mods & KBD_MOD_CTRL) &&
+        (code == KEY_LEFT || code == KEY_RIGHT))
+    {
+        if (navigation_.keyboard_navigation_enabled() && !navigation_.is_animating() && launch_ &&
+            launch_->move_current_app(code == KEY_LEFT ? -1 : 1))
+        {
+            audio_play_switch();
+            refresh_carousel();
+        }
+        return;
+    }
+
     if (elm->key_state)
     {
         switch (code)

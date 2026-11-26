@@ -11,6 +11,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
+#include <fcntl.h>
 #include "cp0_lvgl.h"
 #include "../cp0_display_screenshot_contract.hpp"
 #include <pthread.h>
@@ -45,6 +46,79 @@ static int find_st7789v_fbdev(char *dev_path, size_t buf_size)
     snprintf(dev_path, buf_size, "/dev/fb0");
     return 0;
 }
+
+#if !LV_USE_LINUX_DRM
+/*
+ * The CP0 LCD is a DRM SPI panel (panel-mipi-dbi); /dev/fb0 is the kernel's
+ * fbdev emulation, which pushes mmap writes to the panel from a deferred-I/O
+ * timer (HZ/20). That caps what reaches the glass at ~12-20 fps no matter how
+ * fast LVGL renders. fsync() on the fbdev runs the pending flush right away,
+ * so every finished LVGL frame goes out over SPI immediately.
+ */
+static int g_fb_sync_fd = -1;
+static uint32_t g_fb_frame_pixels = 0;
+static uint32_t g_fb_sync_min_pixels = 0;
+
+/* Sum what each refresh flushes; only frames that change a large area (carousel
+ * swipes, page transitions, scrolling) are pushed immediately. Small updates
+ * such as the clock or the charging icon keep the kernel's batched 20 Hz pace,
+ * so an idle home screen does not stream SPI transfers. */
+static void fbdev_frame_sync_cb(lv_event_t *e)
+{
+    const lv_event_code_t code = lv_event_get_code(e);
+    if (code == LV_EVENT_FLUSH_START) {
+        const lv_area_t *area = (const lv_area_t *)lv_event_get_param(e);
+        if (area != NULL)
+            g_fb_frame_pixels += (uint32_t)lv_area_get_size(area);
+    } else if (code == LV_EVENT_REFR_READY) {
+        if (g_fb_frame_pixels >= g_fb_sync_min_pixels && g_fb_frame_pixels > 0 &&
+            g_fb_sync_fd >= 0)
+            fsync(g_fb_sync_fd);
+        g_fb_frame_pixels = 0;
+    }
+}
+
+static int env_int(const char *name, int fallback)
+{
+    const char *value = getenv(name);
+    if (value == NULL || value[0] == '\0')
+        return fallback;
+    return atoi(value);
+}
+
+static void fbdev_enable_frame_sync(lv_display_t *disp, const char *device)
+{
+    /* APPLAUNCH_FB_SYNC=0 restores the stock deferred-I/O pacing. */
+    if (env_int("APPLAUNCH_FB_SYNC", 1) != 0) {
+        g_fb_sync_fd = open(device, O_RDWR | O_CLOEXEC);
+        if (g_fb_sync_fd >= 0) {
+            /* APPLAUNCH_FB_SYNC_MIN_PCT: share of the screen a frame must
+             * change to be pushed at once (default 12%, 0 = every frame). */
+            int pct = env_int("APPLAUNCH_FB_SYNC_MIN_PCT", 12);
+            if (pct < 0) pct = 0;
+            if (pct > 100) pct = 100;
+            const uint32_t screen = (uint32_t)lv_display_get_horizontal_resolution(disp) *
+                                    (uint32_t)lv_display_get_vertical_resolution(disp);
+            g_fb_sync_min_pixels = screen * (uint32_t)pct / 100u;
+            lv_display_add_event_cb(disp, fbdev_frame_sync_cb, LV_EVENT_FLUSH_START, NULL);
+            lv_display_add_event_cb(disp, fbdev_frame_sync_cb, LV_EVENT_REFR_READY, NULL);
+            printf("Framebuffer frame sync: on (>= %d%% of the screen)\n", pct);
+        } else {
+            perror("Framebuffer frame sync: open");
+        }
+    }
+
+    /* LVGL's default 33 ms period caps rendering and animation at ~30 fps. */
+    const int period = env_int("APPLAUNCH_REFR_PERIOD_MS", 16);
+    if (period >= 5 && period <= 100) {
+        lv_timer_set_period(lv_display_get_refr_timer(disp), (uint32_t)period);
+        lv_timer_t *anim_timer = lv_anim_get_timer();
+        if (anim_timer != NULL)
+            lv_timer_set_period(anim_timer, (uint32_t)period);
+        printf("Display refresh period: %d ms\n", period);
+    }
+}
+#endif
 
 void init_freambuffer_disp()
 {
@@ -112,6 +186,7 @@ void init_freambuffer_disp()
     lv_linux_fbdev_set_file(disp, device);
     if(0)
         lv_linux_fbdev_set_force_refresh(disp, true);
+    fbdev_enable_frame_sync(disp, device);
 
     lv_coord_t w = lv_display_get_horizontal_resolution(disp);
     lv_coord_t h = lv_display_get_vertical_resolution(disp);

@@ -9,6 +9,7 @@
 #include "app_registry.h"
 #include "builtin_app_registry.hpp"
 #include "desktop_app_loader.hpp"
+#include "app_user_order.hpp"
 #include "esc_hold_hint_controller.h"
 #include "ui.h"
 #include "generated/page_app.h"
@@ -215,6 +216,22 @@ void Launch::applications_load()
 {
     launcher_append_desktop_apps(app_list);
     launcher_sort_app_display_order(app_list);
+    launcher_apply_user_app_order(app_list);
+}
+
+bool Launch::move_current_app(int delta)
+{
+    const int size = static_cast<int>(app_list.size());
+    const int from = normalized_app_index(current_app);
+    if (size < 2 || from < 0 || (delta != -1 && delta != 1)) return false;
+
+    // Swap with the visual neighbour; at either end that is the wrapped item,
+    // which is what the circular carousel shows next to it.
+    const int to = normalized_app_index(from + delta);
+    std::swap(*std::next(app_list.begin(), from), *std::next(app_list.begin(), to));
+    current_app = to;
+    launcher_save_user_app_order(app_list);
+    return true;
 }
 
 void Launch::refresh_home_carousel()
